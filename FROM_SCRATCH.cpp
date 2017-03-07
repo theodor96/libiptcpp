@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstdlib>
 
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
