@@ -1,0 +1,141 @@
+error:
+	TC_FREE(h);
+	/* A different process changed the ruleset size, retry */
+	if (errno == EAGAIN)
+		goto retry;
+	return NULL;
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	--- kernel stuff --> see EAGAIN ------>> if EAGAIN -> just try again 1 or 2 times maybe some other process changed the ruleset between our getsockopt calls
+	
+	
+	1169 static int
+1170 get_entries(struct net *net, struct ipt_get_entries __user *uptr, int *len)
+1171 {
+1172         int ret;
+1173         struct ipt_get_entries get;
+1174         struct xt_table *t;
+1175 
+1176         if (*len < sizeof(get)) {
+1177                 duprintf("get_entries: %u < %zu\n", *len, sizeof(get));
+1178                 return -EINVAL;
+1179         }
+1180         if (copy_from_user(&get, uptr, sizeof(get)) != 0)
+1181                 return -EFAULT;
+1182         if (*len != sizeof(struct ipt_get_entries) + get.size) {
+1183                 duprintf("get_entries: %u != %zu\n",
+1184                          *len, sizeof(get) + get.size);
+1185                 return -EINVAL;
+1186         }
+1187 
+1188         t = xt_find_table_lock(net, AF_INET, get.name);
+1189         if (t && !IS_ERR(t)) {
+1190                 const struct xt_table_info *private = t->private;
+1191                 duprintf("t->private->number = %u\n", private->number);
+1192                 if (get.size == private->size)
+1193                         ret = copy_entries_to_user(private->size,
+1194                                                    t, uptr->entrytable);
+1195                 else {
+1196                         duprintf("get_entries: I've got %u not %u!\n",
+1197                                  private->size, get.size);
+1198                         ret = -EAGAIN;
+1199                 }
+1200                 module_put(t->me);
+1201                 xt_table_unlock(t);
+1202         } else
+1203                 ret = t ? PTR_ERR(t) : -ENOENT;
+1204 
+1205         return ret;
+1206 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ t = try_then_request_module(xt_find_table_lock(net, AF_INET, name),
+975                                     "iptable_%s", name);
+976         if (t) {
+977                 struct ipt_getinfo info;
+978                 const struct xt_table_info *private = t->private;
+979 #ifdef CONFIG_COMPAT
+980                 struct xt_table_info tmp;
+981 
+982                 if (compat) {
+983                         ret = compat_table_info(private, &tmp);
+984                         xt_compat_flush_offsets(AF_INET);
+985                         private = &tmp;
+986                 }
+987 #endif
+988                 memset(&info, 0, sizeof(info));
+989                 info.valid_hooks = t->valid_hooks;
+990                 memcpy(info.hook_entry, private->hook_entry,
+991                        sizeof(info.hook_entry));
+992                 memcpy(info.underflow, private->underflow,
+993                        sizeof(info.underflow));
+994                 info.num_entries = private->number;
+995                 info.size = private->size;
+996                 strcpy(info.name, name);
+997 
+998                 if (copy_to_user(user, &info, *len) != 0)
+999                         ret = -EFAULT;
+1000                 else
+1001                         ret = 0;
+1002 
+1003                 xt_table_unlock(t);
+1004                 module_put(t->me);
+1005         } else
+1006                 ret = -ENOENT;
+
+
+
+
+
+
+
+----> if ENOENT => table does not exist in kernel (filter, nat, mangle, raw are the ones that usually exist)
