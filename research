@@ -139,3 +139,63 @@ error:
 
 
 ----> if ENOENT => table does not exist in kernel (filter, nat, mangle, raw are the ones that usually exist)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RESEARCH:
+
+http://lxr.free-electrons.com/ident?i=IPT_SO_SET_REPLACE
+
+http://stackoverflow.com/search?q=IPT_SO_SET_REPLACE
+
+https://en.wikipedia.org/wiki/Iptables
+
+https://en.wikipedia.org/wiki/Nftables
+
+google: iptables vs nftables
+
+https://linux.slashdot.org/story/13/10/19/2118247/nftables-to-replace-iptables-in-the-linux-kernel
+
+https://lwn.net/Articles/531752/
+
+http://inai.de/documents/Netfilter_Modules.pdf + all stuff found at that address

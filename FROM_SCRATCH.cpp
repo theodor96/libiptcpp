@@ -17,6 +17,34 @@ typedef std::map<uint8_t,     std::string>                         IndexToChains
 typedef std::map<ipt_entry*,  std::string>                         RulesToChainsStartMap; // map from a pointer to an entry --> to the name of the chain that begins where that entry is. so from that pointer onwards, all other entries belong to the same table unless they are found at another position in our map
 typedef std::map<std::string, std::vector<ipt_entry*> >            ChainsToRulesMap; // map from the name of a table --> to the vector of rules it contains
 
+int getVerdict(ipt_entry* entry)
+{
+	// reinterpret this memory block as a target and get the verdict from that
+	return reinterpret_cast<xt_standard_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->verdict;
+}
+
+std::string getName(ipt_entry* entry)
+{
+	if (0 == std::strcmp(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name, ""))
+	{
+		return "STANDARD";
+	}
+
+	return reinterpret_cast<const char *>(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->data);
+}
+
+std::string getSrc(ipt_entry* entry)
+{
+	char buffer[INET_ADDRSTRLEN];
+	return inet_ntop(AF_INET, &entry->ip.src, buffer, sizeof buffer);
+}
+
+std::string getDst(ipt_entry* entry)
+{
+	char buffer[INET_ADDRSTRLEN];
+	return inet_ntop(AF_INET, &entry->ip.dst, buffer, sizeof buffer);
+}
+
 ChainsToRulesMap parseFromKernel(const std::string& table)
 {
 	int socketFd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
@@ -96,6 +124,7 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 
 	for (int i = 0; i < entries->size; i += entry->next_offset)
 	{
+
 	    entry = reinterpret_cast<ipt_entry*>(reinterpret_cast<Raw>(entries->entrytable) + i);
 
 	    // every nf table ends with an ERROR node
@@ -105,54 +134,43 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 	    	break;
 	    }
 
-	    // is this entry the beginning of a new chain? if so, reassign the pushInto pointer, otherwise keep the pointer where it was so we insert in the same vector for the same chain
-	    RulesToChainsStartMap::const_iterator chainStartingWithItr = chainsStart.find(entry);
-	    if (chainsStart.end() != chainStartingWithItr)
-	    {
-	    	pushInto = &rules[chainStartingWithItr->second];
-	    }
 
-	    // this should never happen, the very first rule we parse should be found as the beginning of a certain chain. if not, something is WRONG
-	    if (pushInto == NULL)
-	    {
-	    	// TODO: assert here
-	    	std::cout << "pushInto is NULL\n";
-	    	abort();
-	    }
 
-	    // push the rule in the corresponding vector for the corresponding chain
-	    pushInto->push_back(entry);
+	    if (0 == std::strcmp(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name, "ERROR"))
+	    {
+	    	std::pair<ChainsToRulesMap::iterator, bool> newChainItr = rules.insert(ChainsToRulesMap::value_type(reinterpret_cast<const char *>(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->data),
+						 	 	 	 	 	 	 	 	 	                             ChainsToRulesMap::value_type::second_type()));
+
+	    	pushInto = &newChainItr.first->second;
+
+	    	std::cout << "met an ERROR node telling me here begins chain: " << newChainItr.first->first << "\n";
+	    }
+	    else
+	    {
+		    // is this entry the beginning of a new chain? if so, reassign the pushInto pointer, otherwise keep the pointer where it was so we insert in the same vector for the same chain
+		    RulesToChainsStartMap::const_iterator chainStartingWithItr = chainsStart.find(entry);
+		    if (chainsStart.end() != chainStartingWithItr)
+		    {
+		    	std::cout << "now adding shit in table `" << chainStartingWithItr->second << "`\n";
+		    	pushInto = &rules[chainStartingWithItr->second];
+		    }
+
+		    // this should never happen, the very first rule we parse should be found as the beginning of a certain chain. if not, something is WRONG
+		    if (pushInto == NULL)
+		    {
+		    	// TODO: assert here
+		    	std::cout << "pushInto is NULL\n";
+		    	abort();
+		    }
+
+		    std::cout << "pushing in last table `" << reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name << "` with verdict = `" << getVerdict(entry) << "\n";
+		    // push the rule in the corresponding vector for the corresponding chain
+		    pushInto->push_back(entry);
+	    }
 	}
 
+	free(entries);
 	return rules;
-}
-
-int getVerdict(ipt_entry* entry)
-{
-	// reinterpret this memory block as a target and get the verdict from that
-	return reinterpret_cast<xt_standard_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->verdict;
-}
-
-std::string getName(ipt_entry* entry)
-{
-	if (0 == std::strcmp(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name, ""))
-	{
-		return "STANDARD";
-	}
-
-	return reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name;
-}
-
-std::string getSrc(ipt_entry* entry)
-{
-	char buffer[INET_ADDRSTRLEN];
-	return inet_ntop(AF_INET, &entry->ip.src, buffer, sizeof buffer);
-}
-
-std::string getDst(ipt_entry* entry)
-{
-	char buffer[INET_ADDRSTRLEN];
-	return inet_ntop(AF_INET, &entry->ip.dst, buffer, sizeof buffer);
 }
 
 int main()
@@ -182,7 +200,7 @@ int main()
 			{
 				// TODO: assert here
 				std::cout << itr->first << " has no rules!!!!!!!!\n";
-				abort();
+				continue;
 			}
 
 			std::cout << "    Chain `" << itr->first << "`: (verdict = " << getVerdict(itr->second.back()) << ") \n";
