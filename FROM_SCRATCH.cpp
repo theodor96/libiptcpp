@@ -1,6 +1,7 @@
 #include <iostream>
 #include <map>
 #include <vector>
+#include <sstream>
 
 #include <cstring>
 #include <climits>
@@ -13,9 +14,9 @@
 #include <linux/netfilter_ipv4/ip_tables.h>
 
 typedef unsigned char* Raw;
-typedef std::map<uint8_t,     std::string>                         IndexToChainsMap; // map from index of nf hook --> to name of that chain
-typedef std::map<ipt_entry*,  std::string>                         RulesToChainsStartMap; // map from a pointer to an entry --> to the name of the chain that begins where that entry is. so from that pointer onwards, all other entries belong to the same table unless they are found at another position in our map
-typedef std::map<std::string, std::vector<ipt_entry*> >            ChainsToRulesMap; // map from the name of a table --> to the vector of rules it contains
+typedef std::map<uint8_t,     std::string>                         				 IndexToChainsMap; // map from index of nf hook --> to name of that chain
+typedef std::map<ipt_entry*,  std::string>                         				 RulesToChainsStartMap; // map from a pointer to an entry --> to the name of the chain that begins where that entry is. so from that pointer onwards, all other entries belong to the same table unless they are found at another position in our map
+typedef std::map<std::string, std::vector<std::pair<std::string, ipt_entry*> > > ChainsToRulesMap; // map from the name of a table --> to the vector of rules it contains
 
 int getVerdict(ipt_entry* entry)
 {
@@ -120,7 +121,7 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 	ipt_entry* entry = NULL;
 	// this is a pointer to a vector of rules. this gets reassigned for each rule to the corresponding vector in the rules map so it goes like:
 	// when the beginning of a new chain is detected, reassign pushInto pointer. from that point onwards, all entries will go there until we find another entry to be the beginning of another chain
-	std::vector<ipt_entry*>* pushInto = NULL;
+	std::vector<std::pair<std::string, ipt_entry*> >* pushInto = NULL;
 
 	for (int i = 0; i < entries->size; i += entry->next_offset)
 	{
@@ -143,7 +144,8 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 
 	    	pushInto = &newChainItr.first->second;
 
-	    	std::cout << "met an ERROR node telling me here begins chain: " << newChainItr.first->first << "\n";
+	    	ipt_entry* next_entry = reinterpret_cast<ipt_entry*>(reinterpret_cast<Raw>(entry) + entry->next_offset);
+	    	std::cout << "user chain = " << newChainItr.first->first << "; offset for this error node = " << reinterpret_cast<Raw>(entry) - reinterpret_cast<Raw>(entries->entrytable) << "; offset for first rule = " << reinterpret_cast<Raw>(next_entry) - reinterpret_cast<Raw>(entries->entrytable) << "\n";
 	    }
 	    else
 	    {
@@ -151,7 +153,7 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 		    RulesToChainsStartMap::const_iterator chainStartingWithItr = chainsStart.find(entry);
 		    if (chainsStart.end() != chainStartingWithItr)
 		    {
-		    	std::cout << "now adding shit in table `" << chainStartingWithItr->second << "`\n";
+		    	//std::cout << "now adding shit in table `" << chainStartingWithItr->second << "`\n";
 		    	pushInto = &rules[chainStartingWithItr->second];
 		    }
 
@@ -163,9 +165,68 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 		    	abort();
 		    }
 
-		    std::cout << "pushing in last table `" << reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name << "` with verdict = `" << getVerdict(entry) << "\n";
+		    std::string ruleName = "UNNAMED";
+		    if (0 == strcmp(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name, ""))
+		    {
+			    if (getVerdict(entry) < 0)
+			    {
+			    	switch (getVerdict(entry))
+			    	{
+						case (-NF_DROP - 1):
+						{
+							ruleName = "DROP";
+							break;
+						}
+
+						case (-NF_ACCEPT - 1):
+						{
+							ruleName = "ACCEPT";
+							break;
+						}
+
+						case (XT_RETURN):
+						{
+							ruleName = "RETURN";
+							break;
+						}
+			    	}
+			    }
+			    else
+				{
+			    	if (getVerdict(entry) == XT_CONTINUE)
+			    	{
+			    		ruleName = "CONTINUE";
+			    	}
+			    	else
+			    	{
+				    	int currentRuleOffset = reinterpret_cast<Raw>(entry) - reinterpret_cast<Raw>(entries->entrytable);
+
+				    	if (getVerdict(entry) == currentRuleOffset + entry->next_offset)
+				    	{
+				    		ruleName = "FALLTHROUGH";
+				    	}
+				    	else
+				    	{
+				    		// verdict tell us the offset of the first rule contained in the jump-to chain
+
+				    		// so the first node BEFORE the rule described above must be the ERROR node
+
+				    		// we know that ERROR nodes that indicate beginning of user-defined chain
+				    		// consist of an xt_entry_target + maximum XT_FUNCTION_MAXNAMELEN characters representing the name of the chain
+
+				    		// so here if we have the first rule offset, just subtract from it XT_FUNCTION_MAXNAMELEN and reinterpret it as const char* and that must be the name!
+				    		ruleName = "JUMP to " + std::string(reinterpret_cast<const char*>(reinterpret_cast<Raw>(entries->entrytable) + getVerdict(entry) - XT_ALIGN(XT_FUNCTION_MAXNAMELEN)));
+				    	}
+			    	}
+				}
+		    }
+		    else
+		    {
+		    	ruleName = reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name;
+		    }
+
 		    // push the rule in the corresponding vector for the corresponding chain
-		    pushInto->push_back(entry);
+		    pushInto->push_back(std::make_pair(ruleName, entry));
 	    }
 	}
 
@@ -203,11 +264,11 @@ int main()
 				continue;
 			}
 
-			std::cout << "    Chain `" << itr->first << "`: (verdict = " << getVerdict(itr->second.back()) << ") \n";
+			std::cout << "    Chain `" << itr->first << "`\n";
 
-			for (ChainsToRulesMap::mapped_type::const_iterator ruleItr = itr->second.begin(); (ruleItr + 1) != itr->second.end(); ++ruleItr)
+			for (ChainsToRulesMap::mapped_type::const_iterator ruleItr = itr->second.begin(); ruleItr != itr->second.end(); ++ruleItr)
 			{
-				std::cout << "        Rule `" << getName(*ruleItr) << "` with dst = `" << getSrc(*ruleItr) << "` and dst = `" << getDst(*ruleItr) << "`\n";
+				std::cout << "        Rule `" << ruleItr->first << "` with dst = `" << getSrc(ruleItr->second) << "` and dst = `" << getDst(ruleItr->second) << "`\n";
 			}
 		}
 	}
