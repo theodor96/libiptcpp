@@ -11,7 +11,22 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/if.h>
-#include <linux/netfilter_ipv4/ip_tables.h>
+
+#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 2) || (__GNUC__ == 4 && __GNUC_MINOR__ == 2 && __GNUC_PATCHLEVEL__ > 3)
+	#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 6) || (__GNUC__ == 4 && __GNUC_MINOR__ == 6 && __GNUC_PATCHLEVEL__ > 3)
+		 #pragma GCC diagnostic push
+	#endif
+
+	#pragma GCC diagnostic ignored "-fpermissive"
+
+	#include <linux/netfilter_ipv4/ip_tables.h>
+
+	#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 6) || (__GNUC__ == 4 && __GNUC_MINOR__ == 6 && __GNUC_PATCHLEVEL__ > 3)
+		 #pragma GCC diagnostic pop
+	#endif
+#else
+	#error at least GCC 4.2.4 is required
+#endif
 
 typedef unsigned char* Raw;
 typedef std::map<uint8_t,     std::string>                         				 IndexToChainsMap; // map from index of nf hook --> to name of that chain
@@ -56,38 +71,38 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 		std::cout << "sock < 0: " << strerror(errno) << "\n";
 		abort();
 	}
-	
+
 	// some information about the table that we're going to get the rules of, first...
 	ipt_getinfo info;
 	socklen_t length = sizeof info;
 	std::strcpy(info.name, table.c_str());
-	
+
 	if (getsockopt(socketFd, IPPROTO_IP, IPT_SO_GET_INFO, &info, &length) < 0)
 	{
 		close(socketFd);
-		
+
 		std::cout << "getsockopt(sock, IPPROTO_IP, IPT_SO_GET_INFO, &info, sizeof info) < 0: " << strerror(errno) << "\n";
 		abort();
 	}
-	
+
 	// size of the next information that we get via getsockopt = size of struct where that information resides + size of all entries (returned from the info call above)
 	length = sizeof(ipt_get_entries) + info.size;
 	ipt_get_entries* entries = reinterpret_cast<ipt_get_entries*>(std::malloc(length));
-	
+
 	std::strcpy(entries->name, table.c_str());
 	entries->size = info.size;
-	
+
 	if (getsockopt(socketFd, IPPROTO_IP, IPT_SO_GET_ENTRIES, entries, &length) < 0)
 	{
 		free(entries);
 		close(socketFd);
-		
+
 		std::cout << "getsockopt(sock, IPPROTO_IP, IPT_SO_GET_ENTRIES, &entries, &length) < 0: " << strerror(errno) << "\n";
 		abort();
 	}
-	
+
 	close(socketFd);
-	
+
 	// define our maps here (see typedefs) + fill the hardcoded map with index->name ----> see how to get that dynamically -> study kernel sources
 
 	ChainsToRulesMap rules;
@@ -272,6 +287,6 @@ int main()
 			}
 		}
 	}
-	
+
 	return 0;
 }
