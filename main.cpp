@@ -235,7 +235,34 @@ struct ipt_get_entries
 
 
 
-typedef unsigned char* Raw;
+
+
+
+
+using Int8   = int8_t;
+using Int16  = int16_t;
+using Int32  = int32_t;
+using Int64  = int64_t;
+using UInt8  = uint8_t;
+using UInt16 = uint16_t;
+using UInt32 = uint32_t;
+using UInt64 = uint64_t;
+using Raw    = unsigned char*;
+
+
+using ChainIndex = UInt8;
+using ChainName  = std::string;
+
+using Node = ipt_entry*;
+
+using NodeList           = std::vector<Node>;
+
+using IndexToChainMap    = std::unordered_map<ChainIndex, ChainName>;
+using NodeToIndexMap     = std::unordered_map<Node, ChainIndex>;
+
+using IndexToNodeListMap = std::unordered_map<ChainIndex, NodeList>;
+
+
 typedef std::map<uint8_t,     std::string>                         				 IndexToChainsMap; // map from index of nf hook --> to name of that chain
 typedef std::map<ipt_entry*,  std::string>                         				 RulesToChainsStartMap; // map from a pointer to an entry --> to the name of the chain that begins where that entry is. so from that pointer onwards, all other entries belong to the same table unless they are found at another position in our map
 typedef std::map<std::string, std::vector<std::pair<std::string, ipt_entry*> > > ChainsToRulesMap; // map from the name of a table --> to the vector of rules it contains
@@ -315,11 +342,11 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 	ChainsToRulesMap rules;
 	IndexToChainsMap chains;
 	RulesToChainsStartMap chainsStart;
-	chains.insert(IndexToChainsMap::value_type(0, "PREROUTING"));
-	chains.insert(IndexToChainsMap::value_type(1, "INPUT"));
-	chains.insert(IndexToChainsMap::value_type(2, "FORWARD"));
-	chains.insert(IndexToChainsMap::value_type(3, "OUTPUT"));
-	chains.insert(IndexToChainsMap::value_type(4, "POSTROUTING"));
+	chains.insert({0, "PREROUTING"});
+	chains.insert({1, "INPUT"});
+	chains.insert({2, "FORWARD"});
+	chains.insert({3, "OUTPUT"});
+	chains.insert({4, "POSTROUTING"});
 
 	for (int i = 0; i < chains.size(); ++i)
 	{
@@ -328,14 +355,11 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 		if (info.valid_hooks & (1 << i))
 		{
 			// if chain i is valid for this table, then insert it in the map so we can build the vector of entries corresponding to chain i later
-			rules.insert(ChainsToRulesMap::value_type(chains[i], ChainsToRulesMap::value_type::second_type()));
+			rules.insert({chains[i], ChainsToRulesMap::value_type::second_type()});
 
 			// in info.hook_entry we have the offsets from the beginning of the blob (entrytable) until the first rule from chain i
 			// so we put in the map the corresponding pointer to the corresponding chain so that we can find it later so we know where each chain begins
-			chainsStart.insert(
-					RulesToChainsStartMap::value_type(
-							reinterpret_cast<ipt_entry*>(reinterpret_cast<Raw>(entries->entrytable) + info.hook_entry[i]),
-							chains[i]));
+			chainsStart.insert({reinterpret_cast<ipt_entry*>(reinterpret_cast<Raw>(entries->entrytable) + info.hook_entry[i]), chains[i]});
 		}
 	}
 
@@ -357,12 +381,13 @@ ChainsToRulesMap parseFromKernel(const std::string& table)
 	    	break;
 	    }
 
-
-
+		 // node with a target having name "ERROR" means the node is actually a user defined chain. this means 2 things: the name of the user defined chain
+		 // is found in the "data" of the target as a const char* (maximum XT_FUNCTION_MAXNAMELEN chars)
+		 // and the second thing from this point onwards, rules belong to this user defined chain
 	    if (0 == std::strcmp(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->u.user.name, "ERROR"))
 	    {
-	    	std::pair<ChainsToRulesMap::iterator, bool> newChainItr = rules.insert(ChainsToRulesMap::value_type(reinterpret_cast<const char *>(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->data),
-						 	 	 	 	 	 	 	 	 	                             ChainsToRulesMap::value_type::second_type()));
+	    	std::pair<ChainsToRulesMap::iterator, bool> newChainItr = rules.insert({reinterpret_cast<const char*>(reinterpret_cast<xt_entry_target*>(reinterpret_cast<Raw>(entry) + entry->target_offset)->data),
+						 	 	 	 	 	 	 	 	 	                       ChainsToRulesMap::value_type::second_type()});
 
 	    	pushInto = &newChainItr.first->second;
 
@@ -464,7 +489,9 @@ int main()
 	tables.push_back("nat");
 	tables.push_back("raw");
 
-	for (std::vector<const char*>::const_iterator tableItr = tables.begin(); tableItr != tables.end(); ++tableItr)
+	parseFromKernel("nat");
+
+	/*for (std::vector<const char*>::const_iterator tableItr = tables.begin(); tableItr != tables.end(); ++tableItr)
 	{
 		ChainsToRulesMap chainsToRules = parseFromKernel(*tableItr);
 
@@ -493,7 +520,7 @@ int main()
 				std::cout << "        Rule `" << ruleItr->first << "` with dst = `" << getSrc(ruleItr->second) << "` and dst = `" << getDst(ruleItr->second) << "`\n";
 			}
 		}
-	}
+	}*/
 
 	return 0;
 }
