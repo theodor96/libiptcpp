@@ -1,7 +1,7 @@
-all: main
+all: main2
 
-main: main.o
-	g++ -o main main.o
+main2: main2.o
+	g++ -o main2 main2.o
 
-main.o: main.cpp
-	g++ -c main.cpp -std=gnu++0x
+main2.o: main2.cpp
+	g++ -c main2.cpp -std=gnu++0x

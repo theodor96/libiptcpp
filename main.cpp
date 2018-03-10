@@ -209,35 +209,7 @@ struct ipt_get_entries
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Type definitions
 
 using Int8   = int8_t;
 using Int16  = int16_t;
@@ -247,25 +219,24 @@ using UInt8  = uint8_t;
 using UInt16 = uint16_t;
 using UInt32 = uint32_t;
 using UInt64 = uint64_t;
-using Raw    = unsigned char*;
 
-
-using ChainIndex = UInt8;
-using ChainName  = std::string;
-
-using Node = ipt_entry*;
+using Raw   = unsigned char*;
+using Chain = UInt16;
+using Node  = ipt_entry*;
 
 using NodeList           = std::vector<Node>;
+using ChainToNameMap     = std::unordered_map<Chain, std::string>
+using NodeToOwnerMap     = std::unordered_map<Node, Chain>;
+using OwnerToNodeListMap = std::unordered_map<Chain, NodeList>;
 
-using IndexToChainMap    = std::unordered_map<ChainIndex, ChainName>;
-using NodeToIndexMap     = std::unordered_map<Node, ChainIndex>;
 
-using IndexToNodeListMap = std::unordered_map<ChainIndex, NodeList>;
-
+/* old type defs - todo: get comments
 
 typedef std::map<uint8_t,     std::string>                         				 IndexToChainsMap; // map from index of nf hook --> to name of that chain
 typedef std::map<ipt_entry*,  std::string>                         				 RulesToChainsStartMap; // map from a pointer to an entry --> to the name of the chain that begins where that entry is. so from that pointer onwards, all other entries belong to the same table unless they are found at another position in our map
 typedef std::map<std::string, std::vector<std::pair<std::string, ipt_entry*> > > ChainsToRulesMap; // map from the name of a table --> to the vector of rules it contains
+
+*/
 
 int getVerdict(ipt_entry* entry)
 {
