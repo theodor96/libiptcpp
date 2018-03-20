@@ -330,7 +330,7 @@ void parseFromKernel(const std::string& iTable)
 	
 	
 	
-	std::unordered_map<nf_inet_hooks, std::string> chains{ {NF_INET_PRE_ROUTING, "PREROUTING"}, {NF_INET_LOCAL_IN, "INPUT"}, {NF_INET_FORWARD, "FORWARD"}, {NF_INET_LOCAL_OUT, "OUTPUT"}, {NF_INET_POST_ROUTING, "POSTROUTING"} }; 
+	/*std::unordered_map<nf_inet_hooks, std::string> chains{ {NF_INET_PRE_ROUTING, "PREROUTING"}, {NF_INET_LOCAL_IN, "INPUT"}, {NF_INET_FORWARD, "FORWARD"}, {NF_INET_LOCAL_OUT, "OUTPUT"}, {NF_INET_POST_ROUTING, "POSTROUTING"} }; 
 	std::cout << "Table " << iTable << ":" << std::endl;
 	for (std::unordered_map<nf_inet_hooks, std::string>::const_iterator itr = chains.begin(); itr != chains.end(); ++itr)
 	{
@@ -342,7 +342,7 @@ void parseFromKernel(const std::string& iTable)
 	std::cout << "info.size = " << info.size << std::endl;
 	std::cout << "info.num_entries = " << info.num_entries << std::endl;
 	std::cout << std::endl << std::endl;
-	
+	*/
 	
 
 
@@ -360,11 +360,41 @@ void parseFromKernel(const std::string& iTable)
 		std::cout << "getsockopt(sock, IPPROTO_IP, IPT_SO_GET_ENTRIES, &entries, &length) < 0: " << strerror(errno) << "\n";
 		abort();
 	}
+	
+	ipt_replace* replaceInfo = reinterpret_cast<ipt_replace*>(std::malloc(sizeof(ipt_replace) + entries->size));
+	
+	strcpy(replaceInfo->name, iTable.c_str());
+	replaceInfo->valid_hooks = info.valid_hooks;
+	replaceInfo->num_entries = info.num_entries;
+	replaceInfo->size = entries->size;
+	memcpy(replaceInfo->hook_entry, info.hook_entry, sizeof(info.hook_entry));
+	memcpy(replaceInfo->underflow, info.underflow, sizeof(info.underflow));
+	replaceInfo->num_counters = info.num_entries;
+    xt_counters* counters = reinterpret_cast<xt_counters*>(std::malloc(sizeof(xt_counters)*info.num_entries));
+	memset(counters, 0, sizeof(xt_counters) * info.num_entries);
+	
+	
+	std::cout << "before setting, counters[0] = " << counters[0].pcnt << ", " << counters[0].bcnt << "\n";
+	
+	replaceInfo->counters = counters;
+	memcpy(replaceInfo->entries, entries->entrytable, entries->size);
+	
+	length = sizeof(ipt_replace) + entries->size;
+	if (setsockopt(socketFd, IPPROTO_IP, IPT_SO_SET_REPLACE, replaceInfo, length) < 0)
+	{
+		std::cout << "setsockopt(socketFd, IPPROTO_IP, IPT_SO_SET_REPLACE, &replaceInfo, &length) < 0: " << strerror(errno) << "\n";
+		abort();
+	}
+	else
+	{
+		std::cout << "successfully replaced rules !!! \n";
+		std::cout << "after setting, counters[0] = " << counters[0].pcnt << ", " << counters[0].bcnt << "\n";
+	}
+
 
 	
 	
-	
-	
+	/*
 	int itr = 0;
 	ipt_entry* entry = NULL;
 	for (int i = 0; i < entries->size; i += entry->next_offset)
@@ -375,41 +405,32 @@ void parseFromKernel(const std::string& iTable)
 		xt_entry_target* xxx = reinterpret_cast<xt_entry_target*>(reinterpret_cast<unsigned char*>(entry) + entry->target_offset);
 		int* verdict = reinterpret_cast<int*>(xxx->data);
 		char* name = reinterpret_cast<char*>(xxx->data);
-	    
-	    /*if (i + entry->next_offset == entries->size) 
-	    {
-	    	std::cout << "ERR entry " << itr << " has: target_offset = " << entry->target_offset << ", next_offset = "
-			<< entry->next_offset
-			<< ", target_size = " << xxx->u.user.target_size
-			<< ", target_name = `" << xxx->u.user.name << "`" << std::endl;*/
-	    //}
-	    //else
-	    {
-	    	std::cout << "entry " << itr << " has: offset = " << i << ", target_offset = " << entry->target_offset << ", next_offset = "
-			<< entry->next_offset
-			<< ", target_size = " << xxx->u.user.target_size
-			<< ", target_name = `" << xxx->u.user.name << "`"
-			<< ", verdict = `" << *verdict << "`"
-			<< ", name = `" << name << "`" << std::endl;
-			
-			TargetType type = getTargetType(xxx);
-			if (E_STANDARD_TARGET == type)
-			{
-				xt_standard_target* stdTarget = reinterpret_cast<xt_standard_target*>(reinterpret_cast<unsigned char*>(entry) + entry->target_offset);
-				std::cout << "entry " << itr << " is STANDARD with verdict = " << getVerdict(stdTarget->verdict) << "\n\n";
-			}
-			else if (E_ERROR_TARGET == type)
-			{
-				xt_error_target* errTarget = reinterpret_cast<xt_error_target*>(reinterpret_cast<unsigned char*>(entry) + entry->target_offset);
-				std::cout << "entry " << itr << " is ERROR with name = " << errTarget->errorname << "\n\n";
-			}
-			else if (E_CUSTOM_TARGET == type)
-			{
-				std::cout << "entry " << itr << " is CUSTOM with name = " << xxx->u.user.name << "\n\n";
-			}
-	    }
+
+		std::cout << "entry " << itr << " has: offset = " << i << ", target_offset = " << entry->target_offset << ", next_offset = "
+		<< entry->next_offset
+		<< ", target_size = " << xxx->u.user.target_size
+		<< ", target_name = `" << xxx->u.user.name << "`"
+		<< ", verdict = `" << *verdict << "`"
+		<< ", name = `" << name << "`" << std::endl;
+		
+		TargetType type = getTargetType(xxx);
+		if (E_STANDARD_TARGET == type)
+		{
+			xt_standard_target* stdTarget = reinterpret_cast<xt_standard_target*>(reinterpret_cast<unsigned char*>(entry) + entry->target_offset);
+			std::cout << "entry " << itr << " is STANDARD with verdict = " << getVerdict(stdTarget->verdict) << "\n\n";
+		}
+		else if (E_ERROR_TARGET == type)
+		{
+			xt_error_target* errTarget = reinterpret_cast<xt_error_target*>(reinterpret_cast<unsigned char*>(entry) + entry->target_offset);
+			std::cout << "entry " << itr << " is ERROR with name = " << errTarget->errorname << "\n\n";
+		}
+		else if (E_CUSTOM_TARGET == type)
+		{
+			std::cout << "entry " << itr << " is CUSTOM with name = " << xxx->u.user.name << "\n\n";
+		}
 	}
 	free(entries);
+	*/
 }
 
 int main(int argc, char** argv)
